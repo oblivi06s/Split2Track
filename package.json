@@ -1,0 +1,12 @@
+{
+  "name": "split2track",
+  "version": "1.0.0",
+  "description": "Split shared expenses with friends and track what each expense was for.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "python3 -m http.server 8080"
+  },
+  "license": "MIT"
+}
