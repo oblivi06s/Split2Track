@@ -1203,3 +1203,83 @@ textarea {
 body:has(.app.no-tabs) .toast {
   bottom: calc(96px + env(safe-area-inset-bottom));
 }
+
+/* ---------- iPhone Safari fixes ---------- */
+/* Never let anything make the page wider than the phone. */
+.app {
+  overflow-x: clip;
+}
+
+/* Grid columns may shrink below their content width (fixes cut-off categories). */
+.cat-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.cat-btn {
+  min-width: 0;
+}
+
+.cat-btn > span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field {
+  min-width: 0;
+}
+
+/* iOS date and select boxes ignore width unless their native style is reset. */
+input[type='date'].input,
+select.input {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  text-align: left;
+}
+
+input[type='date'].input::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+select.input {
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236b7684' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+/* Solid top bar so content doesn't show through it while scrolling. */
+.topbar {
+  background: var(--bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Neutral hint (not a warning) before an amount is typed. */
+.split-status.idle {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+@media (max-width: 380px) {
+  .cat-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .two-col {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Space between a titled section and the card after it */
+.section + .card {
+  margin-top: 16px;
+}

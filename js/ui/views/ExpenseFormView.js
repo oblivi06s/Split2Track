@@ -297,6 +297,12 @@ export class ExpenseFormView extends View {
       const cents = result.ok ? result.shares[id] ?? 0 : null;
       el.textContent = cents ? this.money(cents) : '';
     }
+    if (!this.state.amountText.trim()) {
+      // Nothing typed yet: a friendly hint, not an error.
+      this.statusEl.className = 'split-status idle';
+      this.statusEl.textContent = 'Type the amount above to see each person’s share.';
+      return;
+    }
     this.statusEl.className = `split-status ${result.ok ? 'ok' : 'warn'}`;
     this.statusEl.textContent = result.ok ? '✓ Shares add up to the total.' : result.error;
   }

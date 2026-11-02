@@ -1,6 +1,6 @@
 // Service worker: lets the app open with no internet after the first visit.
 // Bump VERSION whenever you deploy changes so phones get the new files.
-const VERSION = 'split2track-v5';
+const VERSION = 'split2track-v6';
 
 const FILES = [
   './',
