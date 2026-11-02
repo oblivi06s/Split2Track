@@ -25,7 +25,23 @@ export class AppStore {
 
   #commit() {
     this.adapter.save(this.toJSON());
+    this.#emit();
+  }
+
+  #emit() {
     for (const listener of this.listeners) listener(this);
+  }
+
+  /**
+   * Replaces all data with a fresh copy from the server (cloud mode).
+   * Keeps local settings like currency. Does not send anything back.
+   */
+  applyRemote(data) {
+    const settings = { ...this.settings };
+    this.#reset();
+    this.#hydrate({ ...data, settings });
+    this.adapter.acceptRemote?.(this.toJSON());
+    this.#emit();
   }
 
   // ---------- Settings ----------

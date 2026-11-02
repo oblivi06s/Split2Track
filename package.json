@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",
+    "test:db": "psql -v ON_ERROR_STOP=1 -f supabase/tests/supabase_stub.sql -f supabase/schema.sql -f supabase/tests/rls_test.sql",
     "start": "python3 -m http.server 8080"
   },
   "license": "MIT"

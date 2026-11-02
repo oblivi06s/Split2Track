@@ -2,10 +2,12 @@ import { Entity } from './Entity.js';
 
 /** You (isMe = true) or one of your friends. */
 export class Person extends Entity {
-  constructor({ name, isMe = false, ...base }) {
+  constructor({ name, isMe = false, hasAccount = false, ...base }) {
     super(base);
     this.name = String(name ?? '').trim();
     this.isMe = Boolean(isMe);
+    /** Cloud mode: true when this person has signed up and joined. */
+    this.hasAccount = Boolean(hasAccount);
   }
 
   /** "You" for yourself, the real name for friends. */
@@ -24,7 +26,7 @@ export class Person extends Entity {
   }
 
   toJSON() {
-    return { ...super.toJSON(), name: this.name, isMe: this.isMe };
+    return { ...super.toJSON(), name: this.name, isMe: this.isMe, hasAccount: this.hasAccount };
   }
 
   static fromJSON(data) {

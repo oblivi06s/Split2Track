@@ -2,7 +2,7 @@
 
 Split shared expenses with friends, and track **what** every expense was for: food, transportation, accommodation, gifts, and more.
 
-A free, installable web app (PWA). No sign-up and no server. Data stays on your device.
+A free, installable web app (PWA). Use it on one device with no sign-up, or create a free account to share groups with friends (synced with Supabase).
 
 ## Features
 
@@ -12,6 +12,8 @@ A free, installable web app (PWA). No sign-up and no server. Data stays on your 
 - **Balances & settle up:** see who owes who. Debts are simplified into the fewest payments.
 - **Activity feed:** grouped by month, with a filter by category.
 - **Spending charts:** per group, plus your own share by category.
+- **Share with friends (cloud mode):** sign in, send an invite link, and everyone in the group sees the same expenses live.
+- **Claim your name:** if a friend already added you, pick your name when you join and their expenses with you carry over.
 - **Backup:** export and import your data as a JSON file.
 - **Works offline** and can be added to your phone's home screen. Supports dark mode.
 
@@ -42,6 +44,19 @@ npm test
 
 After you change files, bump `VERSION` in `sw.js` so phones load the new version.
 
+## Cloud sync setup (Supabase, free)
+
+1. In Supabase, open **SQL Editor → New query**, paste all of `supabase/schema.sql`, and click **Run**.
+2. Go to **Authentication → Sign In / Providers → Email** and turn **off** "Confirm email". The free email service only sends a few emails per hour. You can turn it back on later with your own email provider.
+3. Go to **Authentication → URL Configuration**. Set **Site URL** to your GitHub Pages link (for example `https://oblivi06s.github.io/Split2Track/`).
+4. Put your project URL and **publishable** key in `js/config.js`. Never put the secret/service_role key there.
+
+The security rules in `schema.sql` make sure people only see groups they belong to. They are tested in `supabase/tests/rls_test.sql`:
+
+```bash
+psql -v ON_ERROR_STOP=1 -f supabase/tests/supabase_stub.sql -f supabase/schema.sql -f supabase/tests/rls_test.sql
+```
+
 ## Project structure (OOP + modules)
 
 ```
@@ -61,6 +76,13 @@ js/
 ├── storage/           Saving data
 │   ├── StorageAdapter.js Interface + LocalStorage and Memory versions
 │   └── AppStore.js      Repository + Observer: owns all data, notifies screens
+├── cloud/             Supabase sync
+│   ├── CloudService.js  All network calls (login, data, invites, live updates)
+│   ├── RemoteMapper.js  App data <-> database rows, and "what changed" diffs
+│   ├── CloudStorageAdapter.js  Offline copy + last confirmed server version
+│   └── CloudSync.js     Uploads changes, downloads updates, handles offline
+├── vendor/            supabase-js browser build (MIT)
+├── config.js          Supabase URL + publishable key
 └── ui/                Screens
     ├── App.js           Wires the store, router, and screens together
     ├── Router.js        Hash-based routing (#/groups/123)
@@ -76,7 +98,7 @@ js/
 | **Inheritance** | `Person`, `Group`, `Expense`, `Settlement` extend `Entity`. Every screen extends `View`. |
 | **Polymorphism** | `EqualSplit`, `ExactSplit`, `PercentSplit` all have `split()`. The form calls it without knowing which one it has. |
 | **Encapsulation** | `AppStore` hides its data maps and uses private `#methods`. Screens change data only through its public methods. |
-| **Abstraction / interfaces** | `StorageAdapter` defines `load()` and `save()`. Swap `LocalStorageAdapter` for a cloud version later without touching the screens. |
+| **Abstraction / interfaces** | `StorageAdapter` defines `load()` and `save()`. `LocalStorageAdapter` and `CloudStorageAdapter` both follow it, so the screens work the same in both modes. |
 | **Design patterns** | Strategy (splits), Repository + Observer (`AppStore`), Adapter (storage), simple Registry (`SplitStrategy.for()`). |
 
 ### How the money math works
@@ -85,6 +107,13 @@ js/
 - Every split adds up to the exact total. Leftover cents go to specific people.
 - **Net balance** = what you paid for others − what others paid for you ± payments.
 - **Simplify debts:** the person who owes the most pays the person owed the most, and so on.
+
+### How cloud sync works
+
+- The app keeps working from a copy on the device, so it is fast and works offline.
+- When you change something, `CloudSync` compares it with the last version the server confirmed and uploads only the difference.
+- When anyone in your groups changes something, Supabase Realtime tells the app, and it downloads the latest data.
+- Offline changes wait on the device and upload when you are back online.
 
 ## License
 

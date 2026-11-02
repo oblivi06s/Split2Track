@@ -14,7 +14,7 @@ export class OnboardingView extends View {
   }
 
   render() {
-    let name = '';
+    let name = this.app.user?.user_metadata?.name ?? '';
     let currency = this.store.currency;
     const error = errorText();
 
@@ -23,7 +23,8 @@ export class OnboardingView extends View {
       try {
         this.store.setCurrency(currency);
         this.store.createMe(name);
-        this.go('#/groups');
+        // Continue to where the user was going (for example, an invite link).
+        this.app.reshow();
       } catch (e) {
         error.textContent = e.message;
       }
@@ -38,7 +39,7 @@ export class OnboardingView extends View {
       h(
         'div',
         { class: 'card pad' },
-        field('Your name', textInput({ placeholder: 'e.g. John', onInput: (v) => (name = v), autofocus: true })),
+        field('Your name', textInput({ value: name, placeholder: 'e.g. John', onInput: (v) => (name = v), autofocus: true })),
         field(
           'Currency',
           selectInput(
@@ -50,7 +51,11 @@ export class OnboardingView extends View {
         error,
         button('Get started', null, { type: 'submit', block: true }),
       ),
-      h('p', { class: 'muted small center' }, 'Your data stays on this device. No sign-up needed.'),
+      h(
+        'p',
+        { class: 'muted small center' },
+        this.app.mode === 'cloud' ? 'This is the name your friends will see.' : 'Your data stays on this device. No sign-up needed.',
+      ),
     );
   }
 }

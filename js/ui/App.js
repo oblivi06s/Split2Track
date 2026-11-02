@@ -12,6 +12,8 @@ import { ExpenseDetailView } from './views/ExpenseDetailView.js';
 import { SettleUpView } from './views/SettleUpView.js';
 import { ActivityView } from './views/ActivityView.js';
 import { AccountView } from './views/AccountView.js';
+import { AuthView, LoadingView } from './views/AuthView.js';
+import { JoinView } from './views/JoinView.js';
 
 const ROUTES = [
   { path: '/', view: GroupsView },
@@ -27,7 +29,15 @@ const ROUTES = [
   { path: '/settle', view: SettleUpView },
   { path: '/activity', view: ActivityView },
   { path: '/account', view: AccountView },
+  { path: '/join/:code', view: JoinView },
 ];
+
+const SYNC_LABELS = {
+  syncing: 'Syncing…',
+  synced: '✓ Synced',
+  offline: 'Offline',
+  error: 'Sync problem',
+};
 
 const TABS = [
   { id: 'groups', label: 'Groups', icon: '👥', href: '#/groups' },
@@ -38,10 +48,20 @@ const TABS = [
 
 /** Connects the store, router, and screens. Owns the page layout. */
 export class App {
-  /** @param {HTMLElement} root @param {import('../storage/AppStore.js').AppStore} store */
-  constructor(root, store) {
+  /**
+   * @param {HTMLElement} root
+   * @param {import('../storage/AppStore.js').AppStore} store
+   * @param {{mode?: 'local'|'cloud'|'auth', service?: object, sync?: object, user?: object, cloudAvailable?: boolean}} options
+   *   local = data on this device only, cloud = signed in and syncing, auth = needs sign in
+   */
+  constructor(root, store, { mode = 'local', service = null, sync = null, user = null, cloudAvailable = false } = {}) {
     this.root = root;
     this.store = store;
+    this.mode = mode;
+    this.service = service;
+    this.sync = sync;
+    this.user = user;
+    this.cloudAvailable = cloudAvailable;
     this.router = new Router(ROUTES, NotFoundView);
     this.current = null;
     this.#buildShell();
@@ -51,13 +71,42 @@ export class App {
     this.store.subscribe(() => {
       if (this.current?.live) this.renderCurrent();
     });
+    this.sync?.onStatus((status, sync) => {
+      this.#showSyncStatus(status);
+      // First download finished: leave the loading screen.
+      if (this.current instanceof LoadingView && (sync.ready || status === 'offline')) this.reshow();
+    });
     this.router.start((match) => this.#show(match));
+  }
+
+  /** Show the screen for the current address again (e.g. after onboarding). */
+  reshow() {
+    this.#show(this.router.resolve(location.hash));
+  }
+
+  #showSyncStatus(status) {
+    const label = SYNC_LABELS[status];
+    this.syncEl.hidden = !label;
+    this.syncEl.textContent = label ?? '';
+    this.syncEl.className = `sync-pill ${status}`;
+  }
+
+  #pickView(View) {
+    if (this.mode === 'auth') return AuthView;
+    if (!this.store.me) {
+      // In cloud mode, wait for the server before asking for a name,
+      // or we could create a second profile.
+      if (this.sync && !this.sync.ready) return LoadingView;
+      return OnboardingView;
+    }
+    return View;
   }
 
   #buildShell() {
     this.backBtn = h('a', { class: 'icon-btn back', 'aria-label': 'Back', hidden: true }, '‹');
     this.titleEl = h('h1', { class: 'top-title' });
     this.actionsEl = h('div', { class: 'top-actions' });
+    this.syncEl = h('span', { class: 'sync-pill', role: 'status', hidden: true });
     this.viewEl = h('main', { class: 'view', id: 'main' });
     this.tabLinks = TABS.map((tab) =>
       h('a', { class: 'tab', href: tab.href, dataset: { tab: tab.id } }, h('span', { class: 'tab-icon', 'aria-hidden': 'true' }, tab.icon), h('span', {}, tab.label)),
@@ -66,7 +115,7 @@ export class App {
 
     clear(this.root);
     append(this.root, [
-      h('header', { class: 'topbar' }, this.backBtn, this.titleEl, this.actionsEl),
+      h('header', { class: 'topbar' }, this.backBtn, this.titleEl, this.syncEl, this.actionsEl),
       this.viewEl,
       this.tabBar,
     ]);
@@ -74,8 +123,7 @@ export class App {
 
   #show({ View, params, query }) {
     this.current?.destroy();
-    // No profile yet? Always show the welcome screen first.
-    const ViewClass = this.store.me ? View : OnboardingView;
+    const ViewClass = this.#pickView(View);
     this.current = new ViewClass(this, params, query);
     this.renderCurrent();
     window.scrollTo(0, 0);

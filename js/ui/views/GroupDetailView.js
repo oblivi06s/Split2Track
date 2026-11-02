@@ -9,6 +9,11 @@ export class GroupDetailView extends View {
   constructor(...args) {
     super(...args);
     this.pane = this.query.get('pane') ?? 'expenses';
+    this.showInvite = false;
+  }
+
+  get isCloud() {
+    return this.app.mode === 'cloud';
   }
 
   get group() {
@@ -29,7 +34,12 @@ export class GroupDetailView extends View {
 
   actions() {
     if (!this.group) return [];
-    return [h('a', { class: 'icon-btn', href: `#/groups/${this.group.id}/edit`, 'aria-label': 'Edit group' }, '✏️')];
+    return [
+      this.isCloud
+        ? h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Invite friends', onClick: () => this.#toggleInvite() }, '🔗')
+        : null,
+      h('a', { class: 'icon-btn', href: `#/groups/${this.group.id}/edit`, 'aria-label': 'Edit group' }, '✏️'),
+    ];
   }
 
   render() {
@@ -64,6 +74,7 @@ export class GroupDetailView extends View {
         h('span', { class: 'emoji-tile big', 'aria-hidden': 'true' }, group.emoji),
         h('div', {}, h('h2', { class: 'group-name' }, group.name), status, h('div', { class: 'muted small' }, `Group spending: ${this.money(total)}`)),
       ),
+      this.isCloud && this.showInvite ? this.#inviteCard(group) : null,
       canAdd
         ? h(
             'div',
@@ -89,7 +100,52 @@ export class GroupDetailView extends View {
       h(
         'div',
         { class: 'section' },
-        button('Delete group', () => this.#deleteGroup(), { kind: 'danger', block: true }),
+        group.isOwner
+          ? button('Delete group', () => this.#deleteGroup(), { kind: 'danger', block: true })
+          : h('p', { class: 'muted small center' }, 'Only the person who created this group can delete it.'),
+      ),
+    );
+  }
+
+  #toggleInvite() {
+    this.showInvite = !this.showInvite;
+    this.refresh();
+  }
+
+  /** Link friends can open to join this group. */
+  #inviteCard(group) {
+    if (!group.inviteCode) {
+      return h('div', { class: 'notice' }, 'Getting your invite link… (needs internet)');
+    }
+    const link = `${location.origin}${location.pathname}#/join/${group.inviteCode}`;
+    const input = h('input', { class: 'input', value: link, readonly: true, 'aria-label': 'Invite link', onFocus: (e) => e.target.select() });
+    const copy = async () => {
+      try {
+        await navigator.clipboard.writeText(link);
+        toast('Invite link copied');
+      } catch {
+        input.select();
+        toast('Press and hold to copy');
+      }
+    };
+    const share = async () => {
+      try {
+        await navigator.share({ title: `Join ${group.name} on Split2Track`, text: `Join "${group.name}" on Split2Track to split our expenses:`, url: link });
+      } catch {
+        /* user closed the share sheet */
+      }
+    };
+    return h(
+      'div',
+      { class: 'card pad invite' },
+      h('h3', {}, '🔗 Invite friends'),
+      h('p', { class: 'muted small' }, 'Send this link. Friends sign up, then pick their name so your expenses with them carry over.'),
+      input,
+      h(
+        'div',
+        { class: 'button-row' },
+        button('Copy link', copy, { kind: 'secondary' }),
+        typeof navigator.share === 'function' ? button('Share…', share) : button('Done', () => this.#toggleInvite()),
       ),
     );
   }
@@ -127,7 +183,8 @@ export class GroupDetailView extends View {
           if (balance > 0) trailing = h('span', { class: 'pos' }, `gets back ${this.money(balance)}`);
           else if (balance < 0) trailing = h('span', { class: 'neg' }, `owes ${this.money(-balance)}`);
           else trailing = h('span', { class: 'muted' }, 'settled up');
-          return row({ leading: avatar(member, 32), title: member.displayName, trailing });
+          const joined = this.isCloud && !member.isMe ? (member.hasAccount ? '✓ joined' : 'not joined yet') : null;
+          return row({ leading: avatar(member, 32), title: member.displayName, subtitle: joined, trailing });
         }),
       ),
       section(

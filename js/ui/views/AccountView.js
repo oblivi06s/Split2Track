@@ -5,6 +5,7 @@ import { field, textInput, selectInput, button } from '../forms.js';
 import { Money } from '../../services/Money.js';
 import { BalanceService } from '../../services/BalanceService.js';
 import { SampleData } from '../../services/SampleData.js';
+import { MODE_KEY } from './AuthView.js';
 
 /** Profile, currency, your spending, and backup tools. */
 export class AccountView extends View {
@@ -53,21 +54,75 @@ export class AccountView extends View {
           'Changes how amounts are shown. It does not convert money.',
         ),
       ),
+      this.#accountSection(),
       section('Your share of spending', h('div', { class: 'pad' }, categoryBreakdown(myTotals, this.store.currency))),
-      section(
-        'Your data',
+      this.app.mode === 'cloud'
+        ? section(
+            'Your data',
+            h(
+              'div',
+              { class: 'pad button-col' },
+              h('p', { class: 'muted small' }, 'Your data is saved to your account and shared with your groups.'),
+              button('⬇️ Export backup', () => this.#export(), { kind: 'secondary', block: true }),
+              button('✨ Load sample data', () => this.#sample(), { kind: 'secondary', block: true }),
+            ),
+          )
+        : section(
+            'Your data',
+            h(
+              'div',
+              { class: 'pad button-col' },
+              h('p', { class: 'muted small' }, 'Data is saved in this browser only. Export a backup to move it to another phone.'),
+              button('⬇️ Export backup', () => this.#export(), { kind: 'secondary', block: true }),
+              this.#importButton(),
+              button('✨ Load sample data', () => this.#sample(), { kind: 'secondary', block: true }),
+              button('Erase all data', () => this.#erase(), { kind: 'danger', block: true }),
+            ),
+          ),
+      h('p', { class: 'muted small center' }, 'Split2Track v1.0 · Made by John Michael Jabuen'),
+    );
+  }
+
+  /** Sign in / sign out area. */
+  #accountSection() {
+    if (this.app.mode === 'cloud') {
+      return section(
+        'Account',
         h(
           'div',
           { class: 'pad button-col' },
-          h('p', { class: 'muted small' }, 'Data is saved in this browser only. Export a backup to move it to another phone.'),
-          button('⬇️ Export backup', () => this.#export(), { kind: 'secondary', block: true }),
-          this.#importButton(),
-          button('✨ Load sample data', () => this.#sample(), { kind: 'secondary', block: true }),
-          button('Erase all data', () => this.#erase(), { kind: 'danger', block: true }),
+          h('p', { class: 'small' }, 'Signed in as ', h('strong', {}, this.app.user?.email ?? 'you')),
+          button('Sign out', () => this.#signOut(), { kind: 'secondary', block: true }),
         ),
+      );
+    }
+    if (!this.app.cloudAvailable) return null;
+    return section(
+      'Share with friends',
+      h(
+        'div',
+        { class: 'pad button-col' },
+        h('p', { class: 'muted small' }, 'Create a free account so friends can join your groups and see the same expenses. Data you made on this device stays here.'),
+        button('Sign in or create account', () => {
+          try {
+            localStorage.removeItem(MODE_KEY);
+          } catch {
+            /* ignore */
+          }
+          location.hash = '';
+          location.reload();
+        }, { block: true }),
       ),
-      h('p', { class: 'muted small center' }, 'Split2Track v1.0 · Made by John Michael Jabuen'),
     );
+  }
+
+  async #signOut() {
+    if (this.app.sync?.dirty && !confirm('Some changes are not synced yet and will be lost. Sign out anyway?')) return;
+    this.app.sync?.stop();
+    this.app.sync?.adapter.clear();
+    await this.app.service.signOut();
+    location.hash = '';
+    location.reload();
   }
 
   #export() {

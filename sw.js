@@ -1,6 +1,6 @@
 // Service worker: lets the app open with no internet after the first visit.
 // Bump VERSION whenever you deploy changes so phones get the new files.
-const VERSION = 'split2track-v1';
+const VERSION = 'split2track-v2';
 
 const FILES = [
   './',
@@ -12,6 +12,12 @@ const FILES = [
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
   './js/main.js',
+  './js/config.js',
+  './js/vendor/supabase-2.117.3.js',
+  './js/cloud/RemoteMapper.js',
+  './js/cloud/CloudService.js',
+  './js/cloud/CloudStorageAdapter.js',
+  './js/cloud/CloudSync.js',
   './js/models/index.js',
   './js/models/Entity.js',
   './js/models/Person.js',
@@ -42,6 +48,8 @@ const FILES = [
   './js/ui/views/SettleUpView.js',
   './js/ui/views/ActivityView.js',
   './js/ui/views/AccountView.js',
+  './js/ui/views/AuthView.js',
+  './js/ui/views/JoinView.js',
 ];
 
 self.addEventListener('install', (event) => {
