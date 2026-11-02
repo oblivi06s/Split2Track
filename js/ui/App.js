@@ -69,6 +69,13 @@ export class App {
 
   start() {
     this.store.subscribe(() => {
+      // Profile missing (for example, the server rejected it)? Go back to the
+      // welcome screen instead of showing a screen that needs a profile.
+      const needsProfile = !(this.current instanceof OnboardingView || this.current instanceof LoadingView || this.current instanceof AuthView);
+      if (!this.store.me && needsProfile && this.mode !== 'auth') {
+        this.reshow();
+        return;
+      }
       if (this.current?.live) this.renderCurrent();
     });
     this.sync?.onStatus((status, sync) => {

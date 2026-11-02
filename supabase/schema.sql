@@ -163,6 +163,9 @@ create trigger guard_owner before update on public.settlements
   for each row execute function public.guard_owner();
 
 -- ---------- Row Level Security: who can see and change what ----------
+-- Note: the app saves with "upsert" (insert or update). Postgres also checks
+-- the SELECT rule on the new row, so SELECT rules must accept your own new
+-- rows by looking at the row's own columns (owner_id, user_id).
 
 alter table public.people        enable row level security;
 alter table public.groups        enable row level security;
@@ -173,7 +176,7 @@ alter table public.settlements   enable row level security;
 -- People
 drop policy if exists people_select on public.people;
 create policy people_select on public.people for select to authenticated
-  using (public.can_see_person(id));
+  using (owner_id = auth.uid() or user_id = auth.uid() or public.can_see_person(id));
 
 drop policy if exists people_insert on public.people;
 create policy people_insert on public.people for insert to authenticated
@@ -190,7 +193,7 @@ create policy people_delete on public.people for delete to authenticated
 -- Groups (members can see and rename; only the creator can delete)
 drop policy if exists groups_select on public.groups;
 create policy groups_select on public.groups for select to authenticated
-  using (public.is_group_member(id));
+  using (owner_id = auth.uid() or public.is_group_member(id));
 
 drop policy if exists groups_insert on public.groups;
 create policy groups_insert on public.groups for insert to authenticated

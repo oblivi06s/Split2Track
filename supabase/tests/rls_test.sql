@@ -23,6 +23,34 @@ exception when others then
   return true;
 end $$;
 
+-- ===== The app saves with upsert (insert ... on conflict do update) =====
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'eve', false);
+insert into people (id, name, created_at, user_id) values ('a0000000-0000-0000-0000-0000000000e1', 'Upsert Eve', now(), :'eve')
+  on conflict (id) do update set name = excluded.name, created_at = excluded.created_at, user_id = excluded.user_id;
+insert into people (id, name, created_at) values ('a0000000-0000-0000-0000-0000000000e2', 'Upsert Friend', now())
+  on conflict (id) do update set name = excluded.name;
+insert into groups (id, name, emoji, created_at) values ('b0000000-0000-0000-0000-0000000000e1', 'Upsert Group', '✈️', now())
+  on conflict (id) do update set name = excluded.name;
+insert into group_members values ('b0000000-0000-0000-0000-0000000000e1', 'a0000000-0000-0000-0000-0000000000e1'),
+  ('b0000000-0000-0000-0000-0000000000e1', 'a0000000-0000-0000-0000-0000000000e2') on conflict do nothing;
+insert into expenses (id, group_id, title, amount_cents, payer_id, shares, created_at)
+  values ('c0000000-0000-0000-0000-0000000000e1', 'b0000000-0000-0000-0000-0000000000e1', 'Upsert expense', 200,
+          'a0000000-0000-0000-0000-0000000000e1', '{"a0000000-0000-0000-0000-0000000000e1":100,"a0000000-0000-0000-0000-0000000000e2":100}', now())
+  on conflict (id) do update set title = excluded.title;
+insert into settlements (id, group_id, from_id, to_id, amount_cents, created_at)
+  values ('d0000000-0000-0000-0000-0000000000e1', 'b0000000-0000-0000-0000-0000000000e1', 'a0000000-0000-0000-0000-0000000000e2', 'a0000000-0000-0000-0000-0000000000e1', 50, now())
+  on conflict (id) do update set amount_cents = excluded.amount_cents;
+-- Second upsert of the same rows = an update
+insert into people (id, name, created_at, user_id) values ('a0000000-0000-0000-0000-0000000000e1', 'Eve Renamed', now(), :'eve')
+  on conflict (id) do update set name = excluded.name;
+select pg_temp.expect((select name from people where id = 'a0000000-0000-0000-0000-0000000000e1') = 'Eve Renamed', 'app-style upserts work for every table');
+-- Clean up so the rest of the test starts fresh
+delete from groups where id = 'b0000000-0000-0000-0000-0000000000e1';
+delete from people where id = 'a0000000-0000-0000-0000-0000000000e2';
+reset role;
+delete from people where id = 'a0000000-0000-0000-0000-0000000000e1';
+
 -- ===== John sets up =====
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'john', false);

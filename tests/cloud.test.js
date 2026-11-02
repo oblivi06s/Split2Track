@@ -231,3 +231,19 @@ test('two quick changes in a row are both uploaded (regression)', async () => {
   assert.equal(sync.dirty, false);
   sync.stop();
 });
+
+test('if the server rejects the profile, it is gone after the rollback (app shows onboarding)', async () => {
+  const { service, store, sync, errors } = setup();
+  await sync.start();
+  service.failNextApply = new Error('new row violates row-level security policy for table "people"');
+  store.createMe('John');
+  await sync.push();
+  await settle();
+  assert.equal(errors.length, 1);
+  assert.equal(store.me, null, 'store matches the server again');
+  // Trying again after the fix works.
+  store.createMe('John');
+  await sync.push();
+  assert.equal(service.serverSnapshot().people.length, 1);
+  sync.stop();
+});
