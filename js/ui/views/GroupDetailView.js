@@ -183,7 +183,10 @@ export class GroupDetailView extends View {
           if (balance > 0) trailing = h('span', { class: 'pos' }, `gets back ${this.money(balance)}`);
           else if (balance < 0) trailing = h('span', { class: 'neg' }, `owes ${this.money(-balance)}`);
           else trailing = h('span', { class: 'muted' }, 'settled up');
-          const joined = this.isCloud && !member.isMe ? (member.hasAccount ? '✓ joined' : 'not joined yet') : null;
+          let joined = null;
+          if (this.isCloud && !member.isMe) {
+            joined = member.hasAccount ? '✓ joined' : member.email ? `invited · ${member.email}` : 'not invited yet';
+          }
           return row({ leading: avatar(member, 32), title: member.displayName, subtitle: joined, trailing });
         }),
       ),

@@ -68,7 +68,8 @@ export class FakeCloudService {
   async fetchAll() {
     this.#checkOnline();
     this.calls.push('fetchAll');
-    return structuredClone(this.#server());
+    const { aliases, ...tables } = this.#server();
+    return structuredClone(tables);
   }
 
   async apply(diff) {
@@ -83,8 +84,24 @@ export class FakeCloudService {
     const uid = this.session.user.id;
     const now = () => new Date().toISOString();
 
+    server.aliases ??= {};
+    const resolve = (id) => server.aliases[id] ?? id;
     for (const table of TABLES) {
-      for (const row of diff.upserts[table] ?? []) {
+      for (const original of diff.upserts[table] ?? []) {
+        // Like the triggers in schema.sql: old placeholder ids point to whoever claimed them.
+        const row = structuredClone(original);
+        if (table === 'people' && server.aliases[row.id]) continue;
+        if (table === 'group_members') row.person_id = resolve(row.person_id);
+        if (table === 'expenses') {
+          row.payer_id = resolve(row.payer_id);
+          const shares = {};
+          for (const [id, cents] of Object.entries(row.shares)) shares[resolve(id)] = (shares[resolve(id)] ?? 0) + cents;
+          row.shares = shares;
+        }
+        if (table === 'settlements') {
+          row.from_id = resolve(row.from_id);
+          row.to_id = resolve(row.to_id);
+        }
         if (table === 'group_members') {
           if (!server.group_members.some((m) => m.group_id === row.group_id && m.person_id === row.person_id)) {
             server.group_members.push({ ...row });
@@ -95,6 +112,7 @@ export class FakeCloudService {
           const total = Object.values(row.shares).reduce((a, b) => a + b, 0);
           if (total !== row.amount_cents) throw new Error('Shares must add up to the total');
         }
+        if (table === 'people' && 'email' in row) row.email = row.email ? String(row.email).trim().toLowerCase() : null;
         const existing = server[table].find((r) => r.id === row.id);
         if (existing) Object.assign(existing, row);
         else {
@@ -150,32 +168,59 @@ export class FakeCloudService {
     if (claimPersonId && claimPersonId !== me.id) {
       const target = server.people.find((p) => p.id === claimPersonId && p.user_id === null);
       if (!target) throw new Error("That person can't be claimed");
-      const [oldId, newId] = [claimPersonId, me.id];
-      for (const e of server.expenses) {
-        if (e.payer_id === oldId) e.payer_id = newId;
-        if (oldId in e.shares) {
-          e.shares[newId] = (e.shares[newId] ?? 0) + e.shares[oldId];
-          delete e.shares[oldId];
-        }
-      }
-      server.settlements = server.settlements.filter((s) => !([s.from_id, s.to_id].includes(oldId) && [s.from_id, s.to_id].includes(newId)));
-      for (const s of server.settlements) {
-        if (s.from_id === oldId) s.from_id = newId;
-        if (s.to_id === oldId) s.to_id = newId;
-      }
-      for (const m of server.group_members.filter((m) => m.person_id === oldId)) {
-        if (!server.group_members.some((x) => x.group_id === m.group_id && x.person_id === newId)) {
-          server.group_members.push({ group_id: m.group_id, person_id: newId });
-        }
-      }
-      server.group_members = server.group_members.filter((m) => m.person_id !== oldId);
-      server.people = server.people.filter((p) => p.id !== oldId);
+      this.#merge(server, claimPersonId, me.id);
     }
     if (!server.group_members.some((m) => m.group_id === group.id && m.person_id === me.id)) {
       server.group_members.push({ group_id: group.id, person_id: me.id });
     }
     this.#saveServer(server);
     return group.id;
+  }
+
+  /** Same idea as claim_email_invites() in schema.sql. */
+  async claimInvites() {
+    this.#checkOnline();
+    const email = this.session?.user?.email?.toLowerCase();
+    if (!email) return 0;
+    const server = this.#server();
+    let me = server.people.find((p) => p.user_id === this.session.user.id);
+    const placeholders = server.people.filter((p) => p.user_id === null && p.email === email);
+    if (!placeholders.length) return 0;
+    for (const placeholder of placeholders) {
+      if (!me) {
+        placeholder.user_id = this.session.user.id;
+        me = placeholder;
+        continue;
+      }
+      this.#merge(server, placeholder.id, me.id);
+    }
+    this.#saveServer(server);
+    return placeholders.length;
+  }
+
+  #merge(server, oldId, newId) {
+    for (const e of server.expenses) {
+      if (e.payer_id === oldId) e.payer_id = newId;
+      if (oldId in e.shares) {
+        e.shares[newId] = (e.shares[newId] ?? 0) + e.shares[oldId];
+        delete e.shares[oldId];
+      }
+    }
+    server.settlements = server.settlements.filter((s) => !([s.from_id, s.to_id].includes(oldId) && [s.from_id, s.to_id].includes(newId)));
+    for (const s of server.settlements) {
+      if (s.from_id === oldId) s.from_id = newId;
+      if (s.to_id === oldId) s.to_id = newId;
+    }
+    for (const m of server.group_members.filter((x) => x.person_id === oldId)) {
+      if (!server.group_members.some((x) => x.group_id === m.group_id && x.person_id === newId)) {
+        server.group_members.push({ group_id: m.group_id, person_id: newId });
+      }
+    }
+    server.group_members = server.group_members.filter((m) => m.person_id !== oldId);
+    server.people = server.people.filter((p) => p.id !== oldId);
+    server.aliases ??= {};
+    for (const [from, to] of Object.entries(server.aliases)) if (to === oldId) server.aliases[from] = newId;
+    server.aliases[oldId] = newId;
   }
 
   // ---------- Live updates ----------

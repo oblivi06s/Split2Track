@@ -247,3 +247,48 @@ test('if the server rejects the profile, it is gone after the rollback (app show
   assert.equal(service.serverSnapshot().people.length, 1);
   sync.stop();
 });
+
+test('email invites: a friend added by email sees the group when they sign up', async () => {
+  const service = new FakeCloudService({ userId: UID, email: 'john@example.com' });
+  const john = setup({ service });
+  await john.sync.start();
+  const me = john.store.createMe('John');
+  const ana = john.store.addFriend('Ana', '  Ana@Example.com ');
+  assert.equal(ana.email, 'ana@example.com');
+  assert.throws(() => john.store.addFriend('Ana again', 'ana@example.com'), /already added/);
+  assert.throws(() => john.store.addFriend('Bad', 'not-an-email'), /doesn’t look right/);
+  const group = john.store.createGroup({ name: 'Beach', memberIds: [ana.id] });
+  john.store.saveExpense({ title: 'Boat', amountCents: 1000, payerId: me.id, groupId: group.id, shares: { [me.id]: 500, [ana.id]: 500 } });
+  await john.sync.push();
+
+  // Ana signs up with that email. She has no profile yet.
+  const ANA = '22222222-2222-2222-2222-222222222222';
+  service.session = { user: { id: ANA, email: 'ana@example.com' } };
+  const anaAdapter = new CloudStorageAdapter(ANA, new MemoryStorage());
+  const anaStore = new AppStore(anaAdapter);
+  const anaSync = new CloudSync({ service, store: anaStore, adapter: anaAdapter, userId: ANA, debounceMs: 0 });
+  await anaSync.start();
+
+  assert.equal(anaStore.me?.id, ana.id, 'the placeholder became Ana’s profile (no setup screen needed)');
+  assert.equal(anaStore.getGroup(group.id)?.name, 'Beach');
+  assert.equal(anaStore.expensesFor()[0].shareOf(anaStore.me.id), 500);
+
+  // John sees that Ana joined.
+  service.session = { user: { id: UID, email: 'john@example.com' } };
+  await john.sync.refresh();
+  assert.equal(john.store.getPerson(ana.id).hasAccount, true);
+  john.sync.stop();
+  anaSync.stop();
+});
+
+test('email invites: an existing user gets merged, and the email round-trips', async () => {
+  const store = new AppStore(new MemoryStorageAdapter());
+  store.createMe('John');
+  const ben = store.addFriend('Ben', 'ben@example.com');
+  const rows = RemoteMapper.toRows(store.toJSON(), UID);
+  assert.equal(rows.people.find((p) => p.id === ben.id).email, 'ben@example.com');
+  assert.ok(!('email' in rows.people.find((p) => p.user_id === UID)), 'your own row never sends an email');
+  store.setPersonEmail(ben.id, 'benjie@example.com');
+  assert.equal(store.getPerson(ben.id).email, 'benjie@example.com');
+  assert.throws(() => store.setPersonEmail(store.me.id, 'x@y.com'));
+});

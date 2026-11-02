@@ -83,9 +83,12 @@ export class AppStore {
     return [...this.people.values()].filter((p) => !p.isMe).sort(Person.compare);
   }
 
-  addFriend(name) {
-    const friend = new Person({ name });
+  addFriend(name, email = null) {
+    const friend = new Person({ name, email: Person.normalizeEmail(email) });
     this.#requireName(friend.name);
+    if (friend.email && this.friends().some((p) => p.email === friend.email)) {
+      throw new Error('You already added someone with that email');
+    }
     this.people.set(friend.id, friend);
     this.#commit();
     return friend;
@@ -96,6 +99,14 @@ export class AppStore {
     const trimmed = String(name ?? '').trim();
     this.#requireName(trimmed);
     person.name = trimmed;
+    this.#commit();
+  }
+
+  /** Sets or changes the email invite of a friend who hasn't joined yet. */
+  setPersonEmail(id, email) {
+    const person = this.#require(this.people, id, 'Person');
+    if (person.isMe || person.hasAccount) throw new Error('Only friends who haven’t joined can be invited by email');
+    person.email = Person.normalizeEmail(email);
     this.#commit();
   }
 

@@ -17,7 +17,7 @@ export class RemoteMapper {
         id: p.id,
         name: p.name,
         created_at: p.createdAt,
-        ...(p.isMe ? { user_id: userId } : {}),
+        ...(p.isMe ? { user_id: userId } : { email: p.email ?? null }),
       })),
       groups: (data.groups ?? []).map((g) => ({ id: g.id, name: g.name, emoji: g.emoji, created_at: g.createdAt })),
       group_members: (data.groups ?? []).flatMap((g) => g.memberIds.map((personId) => ({ group_id: g.id, person_id: personId }))),
@@ -62,6 +62,7 @@ export class RemoteMapper {
         name: p.name,
         isMe: p.user_id === userId,
         hasAccount: p.user_id !== null && p.user_id !== undefined,
+        email: p.email ?? null,
         createdAt: iso(p.created_at),
       })),
       groups: (rows.groups ?? []).map((g) => ({

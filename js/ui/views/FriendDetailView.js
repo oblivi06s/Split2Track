@@ -1,7 +1,7 @@
 import { h } from '../dom.js';
 import { View } from '../View.js';
 import { section, avatar, expenseRow, paymentRow, emptyState, toast } from '../components.js';
-import { linkButton, button } from '../forms.js';
+import { linkButton, button, textInput } from '../forms.js';
 import { BalanceService } from '../../services/BalanceService.js';
 
 /** Your balance with one friend, and everything you share. */
@@ -56,6 +56,7 @@ export class FriendDetailView extends View {
       'div',
       {},
       h('div', { class: 'card pad friend-head' }, avatar(friend, 64), h('h2', {}, friend.name), status),
+      this.app.mode === 'cloud' ? this.#inviteCard(friend) : null,
       h(
         'div',
         { class: 'button-row' },
@@ -72,6 +73,38 @@ export class FriendDetailView extends View {
           ? button(`Remove ${friend.name}`, () => this.#remove(friend), { kind: 'danger', block: true })
           : h('p', { class: 'muted small center' }, `${friend.name} is in a group or has expenses, so they can't be removed.`),
       ),
+    );
+  }
+
+  /** Cloud mode: shows if the friend joined, or lets you invite them by email. */
+  #inviteCard(friend) {
+    if (friend.hasAccount) {
+      return h('div', { class: 'notice' }, `✓ ${friend.name} has joined Split2Track. You both see the same shared expenses.`);
+    }
+    const input = textInput({ type: 'email', value: friend.email ?? '', placeholder: 'friend@example.com', maxlength: 254 });
+    input.setAttribute('aria-label', `${friend.name}’s email`);
+    input.setAttribute('inputmode', 'email');
+    const save = (event) => {
+      event.preventDefault();
+      try {
+        this.store.setPersonEmail(friend.id, input.value);
+        toast(input.value.trim() ? `Invite saved. ${friend.name} will see your groups when they sign in.` : 'Email removed');
+      } catch (e) {
+        toast(e.message);
+      }
+    };
+    return h(
+      'form',
+      { class: 'card pad invite', onSubmit: save },
+      h('h3', {}, friend.email ? '✉️ Invited by email' : '✉️ Invite by email'),
+      h(
+        'p',
+        { class: 'muted small' },
+        friend.email
+          ? `${friend.name} will see your shared groups and expenses when they sign in or sign up with this email.`
+          : `Add ${friend.name}’s email. When they sign in or sign up with it, they’ll see your shared groups and expenses.`,
+      ),
+      h('div', { class: 'add-row' }, input, button(friend.email ? 'Update' : 'Invite', null, { type: 'submit' })),
     );
   }
 

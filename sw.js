@@ -1,6 +1,6 @@
 // Service worker: lets the app open with no internet after the first visit.
 // Bump VERSION whenever you deploy changes so phones get the new files.
-const VERSION = 'split2track-v3';
+const VERSION = 'split2track-v4';
 
 const FILES = [
   './',
@@ -36,6 +36,7 @@ const FILES = [
   './js/ui/View.js',
   './js/ui/dom.js',
   './js/ui/forms.js',
+  './js/ui/friendForm.js',
   './js/ui/components.js',
   './js/ui/views/OnboardingView.js',
   './js/ui/views/GroupsView.js',

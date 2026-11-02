@@ -16,6 +16,14 @@ create table if not exists public.people (
   created_at  timestamptz not null default now()
 );
 
+-- Email invites: the email of a friend who hasn't joined yet.
+alter table public.people add column if not exists email text;
+do $$ begin
+  alter table public.people add constraint people_email_format
+    check (email is null or (char_length(email) <= 254 and email ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'));
+exception when duplicate_object then null; end $$;
+create index if not exists people_email_idx on public.people (email) where user_id is null;
+
 create table if not exists public.groups (
   id           uuid primary key default gen_random_uuid(),
   name         text not null check (char_length(name) between 1 and 80),
@@ -60,6 +68,16 @@ create table if not exists public.settlements (
   check (from_id <> to_id)
 );
 
+-- When a friend joins, their placeholder is merged into their real profile.
+-- This remembers old -> new, so changes sent later from a phone that still
+-- has the old placeholder land on the right person.
+create table if not exists public.person_aliases (
+  old_id      uuid primary key,
+  new_id      uuid not null,
+  created_at  timestamptz not null default now()
+);
+alter table public.person_aliases enable row level security; -- no policies: not readable from the app
+
 create index if not exists group_members_person_idx on public.group_members (person_id);
 create index if not exists expenses_group_idx on public.expenses (group_id);
 create index if not exists expenses_payer_idx on public.expenses (payer_id);
@@ -101,18 +119,28 @@ returns boolean language sql stable security definer set search_path = public as
            where gm.person_id = pid and gm.group_id in (select public.my_group_ids()))
 $$;
 
+create or replace function public.resolve_person(pid uuid)
+returns uuid language sql stable security definer set search_path = public as $$
+  select coalesce((select new_id from person_aliases where old_id = pid), pid)
+$$;
+
 -- ---------- Data rules (triggers) ----------
 
 -- People: you can't link someone else's account, unlink someone, or change the owner.
 create or replace function public.guard_people()
 returns trigger language plpgsql set search_path = public as $$
 begin
+  new.email := nullif(lower(trim(new.email)), '');
   if tg_op = 'INSERT' then
     if new.user_id is not null and new.user_id is distinct from auth.uid() then
       raise exception 'You can only link your own account';
     end if;
   elsif tg_op = 'UPDATE' then
     new.owner_id := old.owner_id;
+    -- Once someone has joined, only they can change their own name or email.
+    if old.user_id is not null and old.user_id is distinct from auth.uid() then
+      raise exception 'Only % can change their own profile', old.name;
+    end if;
     if new.user_id is distinct from old.user_id
        and (old.user_id is not null or new.user_id is distinct from auth.uid()) then
       raise exception 'You can only link your own account';
@@ -131,6 +159,15 @@ returns trigger language plpgsql set search_path = public as $$
 declare
   total bigint;
 begin
+  -- Point old placeholder ids at the person who claimed them.
+  new.payer_id := public.resolve_person(new.payer_id);
+  select coalesce(jsonb_object_agg(person_key, cents), '{}'::jsonb) into new.shares
+  from (
+    select public.resolve_person(key::uuid)::text as person_key, sum(value::bigint) as cents
+    from jsonb_each_text(new.shares)
+    group by 1
+  ) merged;
+
   select coalesce(sum(value::bigint), 0) into total from jsonb_each_text(new.shares);
   if total <> new.amount_cents then
     raise exception 'Shares (%) must add up to the total (%)', total, new.amount_cents;
@@ -157,6 +194,43 @@ end $$;
 drop trigger if exists guard_owner on public.groups;
 create trigger guard_owner before update on public.groups
   for each row execute function public.guard_owner();
+
+create or replace function public.resolve_settlement_people()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  new.from_id := public.resolve_person(new.from_id);
+  new.to_id := public.resolve_person(new.to_id);
+  return new;
+end $$;
+
+drop trigger if exists resolve_people on public.settlements;
+create trigger resolve_people before insert or update on public.settlements
+  for each row execute function public.resolve_settlement_people();
+
+create or replace function public.resolve_member()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  new.person_id := public.resolve_person(new.person_id);
+  return new;
+end $$;
+
+drop trigger if exists resolve_member on public.group_members;
+create trigger resolve_member before insert on public.group_members
+  for each row execute function public.resolve_member();
+
+-- A phone that still has a merged placeholder must not bring it back.
+create or replace function public.skip_merged_people()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if public.resolve_person(new.id) <> new.id then
+    return null;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists skip_merged_people on public.people;
+create trigger skip_merged_people before insert on public.people
+  for each row execute function public.skip_merged_people();
 
 drop trigger if exists guard_owner on public.settlements;
 create trigger guard_owner before update on public.settlements
@@ -188,7 +262,7 @@ create policy people_update on public.people for update to authenticated
 
 drop policy if exists people_delete on public.people;
 create policy people_delete on public.people for delete to authenticated
-  using (owner_id = auth.uid() and user_id is distinct from auth.uid());
+  using (owner_id = auth.uid() and user_id is null);
 
 -- Groups (members can see and rename; only the creator can delete)
 drop policy if exists groups_select on public.groups;
@@ -318,6 +392,10 @@ begin
     select group_id, new_id from group_members where person_id = old_id
     on conflict do nothing;
   delete from people where id = old_id;
+  -- Remember the merge (and update older merges that pointed at old_id).
+  update person_aliases set new_id = merge_person.new_id where person_aliases.new_id = merge_person.old_id;
+  insert into person_aliases (old_id, new_id) values (merge_person.old_id, merge_person.new_id)
+    on conflict on constraint person_aliases_pkey do update set new_id = excluded.new_id;
 end $$;
 
 -- Join a group with its invite code. Optionally say "I am this person"
@@ -353,6 +431,41 @@ begin
   return g_id;
 end $$;
 
+-- Email invites: links every placeholder that has your (confirmed) email
+-- to your account. The app calls this each time it loads your data.
+-- If you have no profile yet, the first placeholder becomes your profile.
+create or replace function public.claim_email_invites()
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  my_email text;
+  me uuid := public.my_person_id();
+  placeholder record;
+  claimed integer := 0;
+begin
+  if auth.uid() is null then
+    return 0;
+  end if;
+  select lower(email) into my_email
+  from auth.users
+  where id = auth.uid() and email_confirmed_at is not null;
+  if my_email is null then
+    return 0;
+  end if;
+
+  for placeholder in
+    select id from people where user_id is null and email = my_email order by created_at
+  loop
+    if me is null then
+      update people set user_id = auth.uid() where id = placeholder.id;
+      me := placeholder.id;
+    else
+      perform public.merge_person(placeholder.id, me);
+    end if;
+    claimed := claimed + 1;
+  end loop;
+  return claimed;
+end $$;
+
 -- ---------- Permissions ----------
 
 revoke all on public.people, public.groups, public.group_members, public.expenses, public.settlements from anon;
@@ -361,10 +474,13 @@ grant select, insert, update, delete
   to authenticated;
 
 revoke all on function public.merge_person(uuid, uuid) from public, anon, authenticated;
+revoke all on public.person_aliases from anon, authenticated;
 revoke all on function public.join_group(text, uuid) from public, anon;
 revoke all on function public.group_invite_preview(text) from public, anon;
 grant execute on function public.join_group(text, uuid) to authenticated;
 grant execute on function public.group_invite_preview(text) to authenticated;
+revoke all on function public.claim_email_invites() from public, anon;
+grant execute on function public.claim_email_invites() to authenticated;
 
 -- ---------- Live updates (Realtime) ----------
 

@@ -111,6 +111,19 @@ export class CloudService {
     return data;
   }
 
+  /**
+   * Links friends' email invites to this account. Returns how many were claimed.
+   * Returns 0 if the database hasn't been updated with this feature yet.
+   */
+  async claimInvites() {
+    const { data, error } = await this.client.rpc('claim_email_invites');
+    if (error) {
+      if (/could not find the function|PGRST202|does not exist/i.test(`${error.code} ${error.message}`)) return 0;
+      throw error;
+    }
+    return data ?? 0;
+  }
+
   // ---------- Live updates ----------
 
   /** Calls `onChange` whenever any shared data changes on the server. */

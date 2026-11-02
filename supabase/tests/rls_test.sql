@@ -140,5 +140,88 @@ select pg_temp.expect((select count(*) from people where user_id is not null) = 
 delete from groups where id = 'b0000000-0000-0000-0000-000000000001';
 select pg_temp.expect((select count(*) from expenses) = 1, 'owner deleting group removes its expenses');
 
+-- ===== Email invites =====
+reset role;
+insert into auth.users values
+  ('44444444-4444-4444-4444-444444444444', 'Ben@Example.com', now()),       -- confirmed, no profile yet
+  ('55555555-5555-5555-5555-555555555555', 'cara@example.com', null),       -- email NOT confirmed
+  ('66666666-6666-6666-6666-666666666666', 'dan@example.com', now());       -- confirmed, has a profile
+set role authenticated;
+
+select set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', false);
+insert into people (id, name, user_id) values ('a0000000-0000-0000-0000-0000000000d1', 'Dan', '66666666-6666-6666-6666-666666666666');
+
+select set_config('request.jwt.claim.sub', :'john', false);
+insert into people (id, name, email) values
+  ('a0000000-0000-0000-0000-0000000000b1', 'Benjie', '  BEN@example.COM '),
+  ('a0000000-0000-0000-0000-0000000000c1', 'Cara', 'cara@example.com'),
+  ('a0000000-0000-0000-0000-0000000000d2', 'Dan placeholder', 'dan@example.com')
+  on conflict (id) do update set name = excluded.name, email = excluded.email;
+select pg_temp.expect((select email from people where id = 'a0000000-0000-0000-0000-0000000000b1') = 'ben@example.com', 'emails are stored lowercase');
+select pg_temp.expect(pg_temp.rejected($$insert into people (name, email) values ('Bad', 'not-an-email')$$), 'invalid emails are rejected');
+insert into groups (id, name, invite_code) values ('b0000000-0000-0000-0000-000000000002', 'Beach', 'testinvite02');
+insert into group_members values
+  ('b0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-00000000000a'),
+  ('b0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-0000000000b1'),
+  ('b0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-0000000000c1'),
+  ('b0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-0000000000d2');
+insert into expenses (group_id, title, amount_cents, payer_id, shares) values
+  ('b0000000-0000-0000-0000-000000000002', 'Boat', 900, 'a0000000-0000-0000-0000-00000000000a',
+   '{"a0000000-0000-0000-0000-00000000000a":300,"a0000000-0000-0000-0000-0000000000b1":300,"a0000000-0000-0000-0000-0000000000d2":300}');
+
+-- Ben signs up (no profile yet): the placeholder becomes his profile.
+select set_config('request.jwt.claim.sub', '44444444-4444-4444-4444-444444444444', false);
+select pg_temp.expect((select count(*) from groups) = 0, 'before claiming, Ben sees no groups');
+select pg_temp.expect((select public.claim_email_invites()) = 1, 'Ben claims 1 email invite');
+select pg_temp.expect((select public.my_person_id()) = 'a0000000-0000-0000-0000-0000000000b1', 'placeholder became Ben''s profile');
+select pg_temp.expect((select count(*) from groups where name = 'Beach') = 1, 'Ben now sees the Beach group');
+select pg_temp.expect((select count(*) from expenses) = 1, 'Ben sees the group expense');
+select pg_temp.expect((select public.claim_email_invites()) = 0, 'claiming again does nothing');
+update people set name = 'Ben' where id = 'a0000000-0000-0000-0000-0000000000b1';
+
+-- Cara never confirmed her email: she can't claim.
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+select pg_temp.expect((select public.claim_email_invites()) = 0, 'unconfirmed email cannot claim invites');
+select pg_temp.expect((select count(*) from groups) = 0, 'unconfirmed user sees no groups');
+
+-- Dan already has a profile: the placeholder is merged into it.
+select set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', false);
+select pg_temp.expect((select public.claim_email_invites()) = 1, 'Dan claims his invite');
+select pg_temp.expect((select shares ->> 'a0000000-0000-0000-0000-0000000000d1' from expenses) = '300', 'Dan''s share moved to his existing profile');
+select pg_temp.expect((select count(*) from people where id = 'a0000000-0000-0000-0000-0000000000d2') = 0, 'Dan''s placeholder is gone');
+
+-- John's phone still has Dan's old placeholder and sends changes with it.
+select set_config('request.jwt.claim.sub', :'john', false);
+insert into expenses (id, group_id, title, amount_cents, payer_id, shares) values
+  ('c0000000-0000-0000-0000-0000000000f1', 'b0000000-0000-0000-0000-000000000002', 'Late expense', 600,
+   'a0000000-0000-0000-0000-0000000000d2',
+   '{"a0000000-0000-0000-0000-00000000000a":300,"a0000000-0000-0000-0000-0000000000d2":300}')
+  on conflict (id) do update set title = excluded.title;
+select pg_temp.expect((select payer_id from expenses where id = 'c0000000-0000-0000-0000-0000000000f1') = 'a0000000-0000-0000-0000-0000000000d1',
+  'late expense: old placeholder payer points to Dan');
+select pg_temp.expect((select shares ? 'a0000000-0000-0000-0000-0000000000d1' and not shares ? 'a0000000-0000-0000-0000-0000000000d2'
+  from expenses where id = 'c0000000-0000-0000-0000-0000000000f1'), 'late expense: old placeholder share points to Dan');
+insert into settlements (group_id, from_id, to_id, amount_cents) values
+  ('b0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-0000000000d2', 'a0000000-0000-0000-0000-00000000000a', 100);
+select pg_temp.expect((select count(*) from settlements where from_id = 'a0000000-0000-0000-0000-0000000000d1') = 1, 'late payment points to Dan');
+insert into groups (id, name) values ('b0000000-0000-0000-0000-000000000003', 'Second group');
+insert into group_members values ('b0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-00000000000a'),
+  ('b0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-0000000000d2') on conflict do nothing;
+select pg_temp.expect((select count(*) from group_members where group_id = 'b0000000-0000-0000-0000-000000000003' and person_id = 'a0000000-0000-0000-0000-0000000000d1') = 1,
+  'adding the old placeholder to a group adds Dan');
+insert into people (id, name, email) values ('a0000000-0000-0000-0000-0000000000d2', 'Dan placeholder', 'dan@example.com')
+  on conflict (id) do update set name = excluded.name;
+select pg_temp.expect((select count(*) from people where id = 'a0000000-0000-0000-0000-0000000000d2') = 0, 'merged placeholder does not come back');
+select pg_temp.expect(pg_temp.rejected($$select * from person_aliases$$), 'merge history is not readable from the app');
+
+-- John added Ben, but can no longer rename or delete him now that Ben joined.
+select set_config('request.jwt.claim.sub', :'john', false);
+select pg_temp.expect((select name from people where id = 'a0000000-0000-0000-0000-0000000000b1') = 'Ben', 'John sees Ben''s own name');
+select pg_temp.expect(pg_temp.rejected($$update people set name = 'Benjamin' where id = 'a0000000-0000-0000-0000-0000000000b1'$$), 'adder cannot rename a joined friend');
+delete from people where id = 'a0000000-0000-0000-0000-0000000000b1';
+select pg_temp.expect((select count(*) from people where id = 'a0000000-0000-0000-0000-0000000000b1') = 1, 'adder cannot delete a joined friend');
+update people set email = 'cara2@example.com' where id = 'a0000000-0000-0000-0000-0000000000c1';
+select pg_temp.expect((select email from people where id = 'a0000000-0000-0000-0000-0000000000c1') = 'cara2@example.com', 'adder can fix a pending friend''s email');
+
 reset role;
 select 'ALL RLS TESTS PASSED' as result;

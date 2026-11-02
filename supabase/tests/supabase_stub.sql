@@ -1,7 +1,7 @@
 -- Minimal stand-in for the parts of Supabase that schema.sql uses,
 -- so the rules can be tested on a plain local Postgres.
 create schema if not exists auth;
-create table if not exists auth.users (id uuid primary key);
+create table if not exists auth.users (id uuid primary key, email text, email_confirmed_at timestamptz);
 
 create or replace function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid

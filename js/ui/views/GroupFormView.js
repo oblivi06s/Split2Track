@@ -2,6 +2,7 @@ import { h, clear, append } from '../dom.js';
 import { View } from '../View.js';
 import { field, textInput, button, errorText } from '../forms.js';
 import { avatar, toast } from '../components.js';
+import { addFriendFields } from '../friendForm.js';
 
 const EMOJIS = ['✈️', '🏠', '🍽️', '🎉', '🏖️', '🏔️', '🚗', '💼', '🎓', '⚽️', '🎂', '🛒'];
 
@@ -119,25 +120,20 @@ export class GroupFormView extends View {
     );
   }
 
-  /** Inline "add a new friend" row. */
+  /** Inline "add a new friend" fields. */
   #newFriendRow(redraw) {
-    const input = textInput({ placeholder: 'Add a new friend' });
-    input.setAttribute('aria-label', 'New friend name');
-    const add = () => {
-      try {
-        const friend = this.store.addFriend(input.value);
-        this.selected.add(friend.id);
-        redraw();
-      } catch (e) {
-        toast(e.message);
-      }
-    };
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        add();
-      }
-    });
-    return h('div', { class: 'row add-row' }, input, button('Add', add, { kind: 'secondary' }));
+    return h(
+      'div',
+      { class: 'row add-row-wrap' },
+      addFriendFields({
+        store: this.store,
+        cloud: this.app.mode === 'cloud',
+        compact: true,
+        onAdded: (friend) => {
+          this.selected.add(friend.id);
+          redraw();
+        },
+      }),
+    );
   }
 }

@@ -1,7 +1,7 @@
 import { h } from '../dom.js';
 import { View } from '../View.js';
-import { section, row, avatar, balanceBadge, emptyState, toast } from '../components.js';
-import { textInput, button } from '../forms.js';
+import { section, row, avatar, balanceBadge, emptyState } from '../components.js';
+import { addFriendFields } from '../friendForm.js';
 import { BalanceService } from '../../services/BalanceService.js';
 
 /** Everyone you split with, and who owes who overall. */
@@ -30,6 +30,7 @@ export class FriendsView extends View {
         href: `#/friends/${friend.id}`,
         leading: avatar(friend),
         title: friend.name,
+        subtitle: this.app.mode === 'cloud' ? FriendsView.status(friend) : null,
         trailing: balanceBadge(balance, this.store.currency, { owedLabel: 'owes you', oweLabel: 'you owe' }),
       });
     });
@@ -48,18 +49,18 @@ export class FriendsView extends View {
     );
   }
 
+  /** "✓ joined" / "invited · ana@x.com" / "not invited yet" (cloud mode). */
+  static status(friend) {
+    if (friend.hasAccount) return '✓ joined';
+    if (friend.email) return `invited · ${friend.email}`;
+    return 'not invited yet';
+  }
+
   #addFriendForm() {
-    const input = textInput({ placeholder: 'Friend’s name' });
-    input.setAttribute('aria-label', 'Friend’s name');
-    const submit = (event) => {
-      event.preventDefault();
-      try {
-        const friend = this.store.addFriend(input.value);
-        toast(`${friend.name} added`);
-      } catch (e) {
-        toast(e.message);
-      }
-    };
-    return h('form', { class: 'card add-row pad-sm', onSubmit: submit }, input, button('Add friend', null, { type: 'submit' }));
+    return h(
+      'div',
+      { class: 'card pad-sm' },
+      addFriendFields({ store: this.store, cloud: this.app.mode === 'cloud', onAdded: () => {} }),
+    );
   }
 }

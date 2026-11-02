@@ -13,6 +13,7 @@ A free, installable web app (PWA). Use it on one device with no sign-up, or crea
 - **Activity feed:** grouped by month, with a filter by category.
 - **Spending charts:** per group, plus your own share by category.
 - **Share with friends (cloud mode):** sign in, send an invite link, and everyone in the group sees the same expenses live.
+- **Invite by email:** add a friend's email. When they sign in (or sign up) with it, your shared groups and expenses appear in their account automatically.
 - **Claim your name:** if a friend already added you, pick your name when you join and their expenses with you carry over.
 - **Backup:** export and import your data as a JSON file.
 - **Works offline** and can be added to your phone's home screen. Supports dark mode.

@@ -142,6 +142,8 @@ export class CloudSync {
     const versionAtStart = this.version;
     this.#setStatus('syncing');
     try {
+      // Pick up groups friends added us to by email (cheap when there are none).
+      await this.service.claimInvites?.();
       const rows = await this.service.fetchAll();
       if (this.version !== versionAtStart && !force) {
         // The user changed something while we were downloading. Upload first.
