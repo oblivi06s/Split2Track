@@ -33,6 +33,10 @@ export class GroupFormView extends View {
     return false;
   }
 
+  get hideTabs() {
+    return true;
+  }
+
   render() {
     if (this.params.id && !this.group) return h('div', { class: 'empty' }, 'Group not found.');
 
@@ -116,7 +120,7 @@ export class GroupFormView extends View {
       ),
       h('section', { class: 'section' }, h('h2', { class: 'section-title' }, 'Members'), members),
       error,
-      h('div', { class: 'section' }, button(this.group ? 'Save changes' : 'Create group', null, { type: 'submit', block: true })),
+      h('div', { class: 'sticky-actions' }, button(this.group ? 'Save changes' : 'Create group', null, { type: 'submit', block: true })),
     );
   }
 

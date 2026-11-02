@@ -40,6 +40,11 @@ export class View {
     return true;
   }
 
+  /** Forms hide the bottom tabs so the keyboard and Save button have room. */
+  get hideTabs() {
+    return false;
+  }
+
   /** Buttons for the right side of the top bar. */
   actions() {
     return [];

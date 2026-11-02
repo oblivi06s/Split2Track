@@ -156,7 +156,7 @@ export class App {
     clear(this.actionsEl);
     append(this.actionsEl, view.actions());
 
-    const showTabs = Boolean(this.store.me);
+    const showTabs = Boolean(this.store.me) && !view.hideTabs;
     this.tabBar.hidden = !showTabs;
     this.root.classList.toggle('no-tabs', !showTabs);
     for (const link of this.tabLinks) {

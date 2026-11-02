@@ -97,6 +97,7 @@ export class GroupDetailView extends View {
         'Group sections',
       ),
       (panes[this.pane] ?? panes.expenses)(),
+      canAdd ? h('a', { class: 'fab', href: `#/expense/new?group=${group.id}`, 'aria-label': 'Add expense' }, '＋') : null,
       h(
         'div',
         { class: 'section' },

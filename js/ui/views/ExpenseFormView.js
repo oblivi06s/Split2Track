@@ -5,6 +5,7 @@ import { avatar, categoryIcon, emptyState, toast } from '../components.js';
 import { Category, Expense } from '../../models/index.js';
 import { Money } from '../../services/Money.js';
 import { SplitStrategy } from '../../services/SplitStrategy.js';
+import { SplitAutofill } from '../../services/SplitAutofill.js';
 
 /**
  * Add or edit an expense.
@@ -31,12 +32,16 @@ export class ExpenseFormView extends View {
       method: e?.splitMethod ?? 'equal',
       included: new Set(e && e.splitMethod === 'equal' ? Object.keys(e.shares) : ids),
       values: { exact: {}, percent: {} },
+      // People whose box the user typed in. Everyone else is filled in automatically.
+      manual: { exact: new Set(), percent: new Set() },
       note: e?.note ?? '',
     };
     if (e?.splitMethod === 'exact') {
       for (const [id, cents] of Object.entries(e.shares)) this.state.values.exact[id] = Money.toInput(cents);
     }
     if (e?.splitMethod === 'percent') this.state.values.percent = ExpenseFormView.#percentsFromShares(e);
+    // When editing, keep the saved amounts exactly as they were.
+    if (e && e.splitMethod !== 'equal') this.state.manual[e.splitMethod] = new Set(Object.keys(e.shares));
   }
 
   get title() {
@@ -52,6 +57,10 @@ export class ExpenseFormView extends View {
 
   get live() {
     return false;
+  }
+
+  get hideTabs() {
+    return true;
   }
 
   #findParticipants() {
@@ -85,6 +94,7 @@ export class ExpenseFormView extends View {
       autofocus: !this.existing,
       onInput: (v) => {
         s.amountText = v;
+        this.#autofill();
         this.#updateStatus();
       },
     });
@@ -151,13 +161,21 @@ export class ExpenseFormView extends View {
           s.method,
           (value) => {
             s.method = value;
-            this.#prefill(value);
             this.app.renderCurrent();
           },
           'Split method',
         ),
         this.splitRows,
         this.statusEl,
+        s.method === 'equal'
+          ? null
+          : h(
+              'p',
+              { class: 'hint split-hint' },
+              s.method === 'exact'
+                ? 'Type an amount for anyone. The rest is shared by the others automatically (shown in grey).'
+                : 'Type a percentage for anyone. The rest is shared by the others automatically (shown in grey).',
+            ),
       ),
       h(
         'div',
@@ -165,9 +183,10 @@ export class ExpenseFormView extends View {
         field('Note (optional)', h('textarea', { class: 'input', rows: 2, maxlength: 300, placeholder: 'Anything to remember?', onInput: (e) => (s.note = e.target.value) }, s.note)),
       ),
       error,
-      h('div', { class: 'section' }, button(this.existing ? 'Save changes' : 'Save expense', null, { type: 'submit', block: true })),
+      h('div', { class: 'sticky-actions' }, button(this.existing ? 'Save changes' : 'Save expense', null, { type: 'submit', block: true })),
     );
 
+    this.#autofill();
     this.#drawSplitRows();
     this.#updateStatus();
     return form;
@@ -208,6 +227,7 @@ export class ExpenseFormView extends View {
     const s = this.state;
     clear(this.splitRows);
     this.shareEls = {};
+    this.shareInputs = {};
     for (const person of this.participants) {
       const main = h('div', { class: 'row-main' }, h('div', { class: 'row-title' }, person.displayName));
       if (s.method === 'equal') {
@@ -233,10 +253,23 @@ export class ExpenseFormView extends View {
           maxlength: 12,
           onInput: (v) => {
             s.values[s.method][person.id] = v;
+            // Typing makes this box "yours". An emptied box stays yours until you
+            // leave it, so it doesn't refill while you're still typing.
+            s.manual[s.method].add(person.id);
+            this.#autofill();
             this.#updateStatus();
           },
         });
+        input.addEventListener('blur', () => {
+          if (String(s.values[s.method][person.id] ?? '').trim() === '') {
+            s.manual[s.method].delete(person.id);
+            this.#autofill();
+            this.#updateStatus();
+          }
+        });
         input.classList.add('share-input');
+        input.classList.toggle('auto', !s.manual[s.method].has(person.id));
+        this.shareInputs[person.id] = input;
         input.setAttribute('aria-label', `${person.displayName} ${isPercent ? 'percent' : 'amount'}`);
         const share = isPercent ? h('span', { class: 'muted small' }) : null;
         if (share) this.shareEls[person.id] = share;
@@ -268,28 +301,29 @@ export class ExpenseFormView extends View {
     this.statusEl.textContent = result.ok ? '✓ Shares add up to the total.' : result.error;
   }
 
-  /** When switching to Exact or Percent with nothing typed, start from an equal split. */
-  #prefill(method) {
+  /**
+   * Fills the boxes the user hasn't typed in, so the split always adds up.
+   * Example: ₱400, type 260 for John and Ana gets 140.
+   */
+  #autofill() {
     const s = this.state;
-    if (method === 'equal') return;
-    const values = s.values[method];
-    if (Object.values(values).some((v) => String(v).trim() !== '')) return;
+    if (s.method === 'equal') return;
     const ids = this.participants.map((p) => p.id);
-    const total = Money.parse(s.amountText);
-
-    if (method === 'exact' && total) {
-      const { shares } = SplitStrategy.for('equal').split(total, { participantIds: ids });
-      for (const id of ids) values[id] = Money.toInput(shares[id]);
-    }
-    if (method === 'percent') {
-      // Work in hundredths of a percent so the total is exactly 100.
-      const base = Math.floor(10000 / ids.length);
-      let extra = 10000 - base * ids.length;
-      for (const id of ids) {
-        const hundredths = base + (extra-- > 0 ? 1 : 0);
-        values[id] = String(hundredths / 100);
+    const values = s.values[s.method];
+    const manual = s.manual[s.method];
+    const filled =
+      s.method === 'exact'
+        ? SplitAutofill.exact({ ids, values, manual, totalCents: Money.parse(s.amountText) })
+        : SplitAutofill.percent({ ids, values, manual });
+    for (const [id, text] of Object.entries(filled)) {
+      values[id] = text;
+      const input = this.shareInputs?.[id];
+      if (input) {
+        input.value = text;
+        input.classList.add('auto');
       }
     }
+    for (const id of manual) this.shareInputs?.[id]?.classList.remove('auto');
   }
 
   /** Converts saved shares back into percentages that add up to exactly 100. */

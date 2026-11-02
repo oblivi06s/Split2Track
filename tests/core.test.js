@@ -185,3 +185,41 @@ test('sample data, export, import, and erase', () => {
     assert.equal([...net.values()].reduce((a, b) => a + b, 0), 0);
   }
 });
+
+import { SplitAutofill } from '../js/services/SplitAutofill.js';
+
+test('exact split: typing one amount fills in the rest (₱400, John 260 → Ana 140)', () => {
+  const filled = SplitAutofill.exact({ ids: ['john', 'ana'], values: { john: '260' }, manual: new Set(['john']), totalCents: 40000 });
+  assert.deepEqual(filled, { ana: '140.00' });
+});
+
+test('exact split: the rest is shared equally among people not typed', () => {
+  const filled = SplitAutofill.exact({
+    ids: ['john', 'ana', 'ben', 'carla'],
+    values: { john: '100' },
+    manual: new Set(['john']),
+    totalCents: 1000_00,
+  });
+  assert.deepEqual(filled, { ana: '300.00', ben: '300.00', carla: '300.00' });
+  const odd = SplitAutofill.exact({ ids: ['a', 'b', 'c'], values: { a: '0' }, manual: new Set(['a']), totalCents: 100 });
+  assert.deepEqual(odd, { b: '0.50', c: '0.50' });
+  const cents = SplitAutofill.exact({ ids: ['a', 'b', 'c', 'd'], values: { a: '0.01' }, manual: new Set(['a']), totalCents: 100 });
+  assert.deepEqual(cents, { b: '0.33', c: '0.33', d: '0.33' });
+});
+
+test('exact split: over the total gives 0, and nothing changes while input is invalid or total missing', () => {
+  assert.deepEqual(SplitAutofill.exact({ ids: ['a', 'b'], values: { a: '500' }, manual: new Set(['a']), totalCents: 40000 }), { b: '0.00' });
+  assert.deepEqual(SplitAutofill.exact({ ids: ['a', 'b'], values: { a: 'abc' }, manual: new Set(['a']), totalCents: 40000 }), {});
+  assert.deepEqual(SplitAutofill.exact({ ids: ['a', 'b'], values: { a: '1' }, manual: new Set(['a']), totalCents: null }), {});
+  assert.deepEqual(SplitAutofill.exact({ ids: ['a', 'b'], values: { a: '1', b: '2' }, manual: new Set(['a', 'b']), totalCents: 300 }), {});
+});
+
+test('percent split: typing one percentage fills in the rest', () => {
+  assert.deepEqual(SplitAutofill.percent({ ids: ['a', 'b'], values: { a: '65' }, manual: new Set(['a']) }), { b: '35' });
+  assert.deepEqual(SplitAutofill.percent({ ids: ['a', 'b', 'c'], values: { a: '50' }, manual: new Set(['a']) }), { b: '25', c: '25' });
+  const thirds = SplitAutofill.percent({ ids: ['a', 'b', 'c', 'd'], values: { a: '0' }, manual: new Set(['a']) });
+  assert.equal(Object.values(thirds).reduce((s, v) => s + Math.round(Number(v) * 100), 0), 10000);
+  // The filled values always pass the real split check.
+  const result = SplitStrategy.for('percent').split(1000, { participantIds: ['a', 'b', 'c', 'd'], values: { a: '0', ...thirds } });
+  assert.ok(result.ok);
+});

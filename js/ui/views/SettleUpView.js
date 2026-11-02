@@ -50,6 +50,10 @@ export class SettleUpView extends View {
     return false;
   }
 
+  get hideTabs() {
+    return true;
+  }
+
   render() {
     if (this.people.length < 2) {
       return emptyState('🤝', 'Nobody to settle with', 'Open a group or a friend first.', linkButton('Go to groups', '#/groups'));
@@ -94,8 +98,8 @@ export class SettleUpView extends View {
         field('Note (optional)', textInput({ placeholder: 'e.g. GCash', onInput: (v) => (s.note = v) })),
       ),
       error,
-      h('div', { class: 'section' }, button('Record payment', null, { type: 'submit', block: true })),
-      h('p', { class: 'muted small center' }, 'This only records the payment. Send the money with GCash, bank, or cash.'),
+      h('p', { class: 'muted small center section' }, 'This only records the payment. Send the money with GCash, bank, or cash.'),
+      h('div', { class: 'sticky-actions' }, button('Record payment', null, { type: 'submit', block: true })),
     );
   }
 }
